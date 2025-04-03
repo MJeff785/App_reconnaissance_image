@@ -5,9 +5,14 @@ import os
 
 class ImageProcessor:
     def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+        # Use local cascade file instead of OpenCV's installation path
+        cascade_path = os.path.join(os.path.dirname(__file__), 'cascades', 'haarcascade_frontalface_default.xml')
+        if not os.path.exists(cascade_path):
+            raise FileNotFoundError(f"Haar cascade file not found at: {cascade_path}")
+            
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        if self.face_cascade.empty():
+            raise ValueError("Failed to load Haar cascade classifier")
     
     def detect_face(self, image_input):
         # Handle both file paths and numpy arrays

@@ -31,7 +31,7 @@ class FaceRecognition:
         self.start_camera()
     
     def update_camera(self):
-        if self.cap is not None:
+        if self.cap is not None and not hasattr(self, '_stopping'):
             ret, frame = self.cap.read()
             if ret:
                 try:
@@ -52,7 +52,8 @@ class FaceRecognition:
                     
                     for result in results:
                         try:
-                            stored_encoding = np.frombuffer(result[2], dtype=np.float64)
+                            # Use pickle.loads instead of np.frombuffer
+                            stored_encoding = pickle.loads(result[2])
                             confidence = self.compare_faces(face_features, stored_encoding)
                             if confidence > highest_confidence:
                                 highest_confidence = confidence
@@ -60,24 +61,28 @@ class FaceRecognition:
                         except Exception as e:
                             print(f"Error processing encoding: {e}")
                     
-                    # Update confidence label
-                    self.confidence_label.config(
-                        text=f"Correspondance ({best_name}): {highest_confidence:.1f}%",
-                        foreground='green' if highest_confidence > 60 else 'red'
-                    )
-                except:
-                    # Reset confidence if no face detected
-                    self.confidence_label.config(text="Correspondance: ---%", foreground='black')
+                    # Update confidence label if it still exists
+                    if hasattr(self, 'confidence_label') and self.confidence_label.winfo_exists():
+                        self.confidence_label.config(
+                            text=f"Correspondance ({best_name}): {highest_confidence:.1f}%",
+                            foreground='green' if highest_confidence > 60 else 'red'
+                        )
+                except ValueError:
+                    # No face detected - update label if it exists
+                    if hasattr(self, 'confidence_label') and self.confidence_label.winfo_exists():
+                        self.confidence_label.config(text="Aucun visage détecté", foreground='black')
+                except Exception as e:
+                    print(f"Error in face recognition: {e}")
                 
                 # Update camera display
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image = Image.fromarray(frame_rgb)
                 image = image.resize((640, 480))
-                self.photo = ImageTk.PhotoImage(image=image)  # Store as instance variable
+                self.photo = ImageTk.PhotoImage(image=image)
                 
-                self.camera_label.configure(image=self.photo)
-                
-                self.parent_frame.after(10, self.update_camera)
+                if hasattr(self, 'camera_label') and self.camera_label.winfo_exists():
+                    self.camera_label.configure(image=self.photo)
+                    self.parent_frame.after(10, self.update_camera)
     
     def start_camera(self):
         self.cap = cv2.VideoCapture(0)
@@ -156,21 +161,29 @@ class FaceRecognition:
             face1 = np.array(face1_features).flatten()
             face2 = np.array(face2_features).flatten()
             
-            # Resize shorter array to match longer one if needed
-            if len(face1) != len(face2):
-                target_size = max(len(face1), len(face2))
-                if len(face1) < target_size:
-                    face1 = np.resize(face1, target_size)
-                if len(face2) < target_size:
-                    face2 = np.resize(face2, target_size)
+            # Check for zero variance and handle edge cases
+            std1 = np.std(face1)
+            std2 = np.std(face2)
+            if std1 < 1e-7 or std2 < 1e-7:
+                return 0  # Return 0 confidence if either array has near-zero variance
             
-            correlation = np.corrcoef(face1, face2)[0, 1]
-            confidence = (correlation + 1) * 50
-            return confidence
+            # Normalize the arrays before correlation
+            face1_norm = (face1 - np.mean(face1)) / std1
+            face2_norm = (face2 - np.mean(face2)) / std2
+            
+            # Calculate correlation using cosine similarity for better accuracy
+            norm1 = np.linalg.norm(face1_norm)
+            norm2 = np.linalg.norm(face2_norm)
+            if norm1 == 0 or norm2 == 0:
+                return 0
+                
+            cosine_similarity = np.dot(face1_norm, face2_norm) / (norm1 * norm2)
+            confidence = (cosine_similarity + 1) * 50
+            return max(0, min(100, confidence))
             
         except Exception as e:
             print(f"Error in compare_faces: {e}")
-            return 0  # Return 0 confidence on error
+            return 0
     
     def stop_camera(self):
         if self.cap is not None:
