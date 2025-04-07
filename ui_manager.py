@@ -253,12 +253,16 @@ class UIManager:
         )
         self.classe_combo.grid(row=2, column=1, pady=10, padx=10, sticky='ew')
         
-        ttk.Label(form_frame, text="Année scolaire:").pack(pady=5)
-        self.annee_combo = ttk.Combobox(form_frame, 
-                                       values=['2023-2024', '2024-2025', '2025-2026'],
-                                       state='readonly')
+        ttk.Label(form_frame, text="Année scolaire:", style='Modern.TLabel').grid(
+            row=3, column=0, pady=10, padx=10, sticky='e')
+        self.annee_combo = ttk.Combobox(
+            form_frame, 
+            values=['2023-2024', '2024-2025', '2025-2026'],
+            state='readonly',
+            font=('Helvetica', 11)
+        )
         self.annee_combo.set('2023-2024')
-        self.annee_combo.pack(pady=5)
+        self.annee_combo.grid(row=3, column=1, pady=10, padx=10, sticky='ew')
     
     def create_preview(self):
         self.preview_frame = ttk.LabelFrame(self.content_frame, text="Aperçu de l'image", padding="10")
@@ -316,7 +320,7 @@ class UIManager:
                 'annee': self.annee_combo.get()
             }
             
-            self.face_recognition.save_student(student_data, self.current_image)
+            self.face_db.save_student_face(student_data, self.current_image)
             messagebox.showinfo("Succès", "Étudiant enregistré avec succès!")
             self.clear_form()
             

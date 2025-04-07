@@ -7,3 +7,4 @@ key.pub
 !cascades/*.xml
 .venv/
 cascades/
+.gitignore
