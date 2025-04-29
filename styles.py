@@ -2,21 +2,23 @@ from tkinter import ttk
 
 class ModernStyle:
     COLORS = {
-        'primary': '#2962ff',
-        'secondary': '#455a64',
-        'background': '#ffffff',
-        'surface': '#f5f5f5',
-        'success': '#00c853',
-        'error': '#d50000',
-        'text': '#263238'
+        'primary': '#155C32',
+        'secondary': '#024F22',
+        'background': '#F8F9FA',  # Lighter background
+        'surface': '#FFFFFF',     # White surface
+        'accent': '#198754',      # Accent color
+        'text_primary': '#212529',
+        'text_secondary': '#6C757D',
+        'border': '#DEE2E6'
     }
     
     FONTS = {
-        'title': ('Segoe UI', 24, 'bold'),
-        'subtitle': ('Segoe UI', 18),
-        'body': ('Segoe UI', 11),
-        'button': ('Segoe UI', 10),
-        'label': ('Segoe UI', 11)
+        'title': ('Segoe UI', 32, 'bold'),
+        'subtitle': ('Segoe UI', 24, 'normal'),
+        'heading': ('Segoe UI', 20, 'normal'),
+        'body': ('Segoe UI', 12),
+        'button': ('Segoe UI', 11, 'bold'),
+        'label': ('Segoe UI', 12)
     }
     
     @staticmethod
@@ -24,50 +26,71 @@ class ModernStyle:
         style = ttk.Style(root)
         style.theme_use('clam')
         
-        # Configure frame styles
-        style.configure('Modern.TFrame', 
+        # Window configuration
+        root.configure(background=ModernStyle.COLORS['background'])
+        
+        # Frame styles
+        style.configure('Modern.TFrame',
                        background=ModernStyle.COLORS['background'])
         
         style.configure('Surface.TFrame',
-                       background=ModernStyle.COLORS['surface'])
+                       background=ModernStyle.COLORS['surface'],
+                       relief='flat',
+                       borderwidth=1)
         
-        # Configure button styles
+        # Button styles
         style.configure('Modern.TButton',
-                       padding=(20, 10),
+                       padding=(25, 12),
                        font=ModernStyle.FONTS['button'],
-                       background=ModernStyle.COLORS['primary'])
+                       background=ModernStyle.COLORS['primary'],
+                       foreground='white',
+                       borderwidth=0,
+                       relief='flat')
         
         style.map('Modern.TButton',
-                 background=[('active', ModernStyle.COLORS['secondary'])])
+                 background=[('active', ModernStyle.COLORS['secondary'])],
+                 foreground=[('active', 'white')])
         
-        # Configure label styles
-        style.configure('Modern.TLabel',
-                       font=ModernStyle.FONTS['body'],
-                       background=ModernStyle.COLORS['background'])
-        
+        # Label styles
         style.configure('Title.TLabel',
                        font=ModernStyle.FONTS['title'],
-                       background=ModernStyle.COLORS['background'])
+                       background=ModernStyle.COLORS['background'],
+                       foreground=ModernStyle.COLORS['text_primary'])
         
         style.configure('Subtitle.TLabel',
                        font=ModernStyle.FONTS['subtitle'],
-                       background=ModernStyle.COLORS['background'])
+                       background=ModernStyle.COLORS['background'],
+                       foreground=ModernStyle.COLORS['text_secondary'])
         
-        # Configure entry styles
+        style.configure('Modern.TLabel',
+                       font=ModernStyle.FONTS['body'],
+                       background=ModernStyle.COLORS['surface'],
+                       foreground=ModernStyle.COLORS['text_primary'])
+        
+        # Entry styles
         style.configure('Modern.TEntry',
-                       padding=10,
-                       font=ModernStyle.FONTS['body'])
+                       padding=12,
+                       font=ModernStyle.FONTS['body'],
+                       fieldbackground=ModernStyle.COLORS['surface'],
+                       borderwidth=1,
+                       relief='solid')
         
-        # Configure combobox styles
+        # Combobox styles
         style.configure('Modern.TCombobox',
-                       padding=10,
-                       font=ModernStyle.FONTS['body'])
+                       padding=12,
+                       font=ModernStyle.FONTS['body'],
+                       fieldbackground=ModernStyle.COLORS['surface'],
+                       borderwidth=1,
+                       arrowsize=15)
         
-        # Configure labelframe styles
+        # Labelframe styles
         style.configure('Modern.TLabelframe',
                        background=ModernStyle.COLORS['surface'],
-                       padding=20)
+                       padding=25,
+                       relief='flat',
+                       borderwidth=1)
         
         style.configure('Modern.TLabelframe.Label',
-                       font=ModernStyle.FONTS['subtitle'],
-                       background=ModernStyle.COLORS['surface'])
+                       font=ModernStyle.FONTS['heading'],
+                       background=ModernStyle.COLORS['surface'],
+                       foreground=ModernStyle.COLORS['text_primary'])

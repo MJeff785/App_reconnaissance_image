@@ -1,10 +1,32 @@
+# Python cache files
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Project specific
 faces_imgs/
 photos/
 key
 key.pub
+
+# Keep cascades XML files
 !cascades/
 !cascades/*.xml
-.venv/
+
+# PyInstaller files
+build/
+dist/
+*.spec
+
+# IDE files (optionnel)
+.vscode/
+.idea/
 cascades/
-.gitignore
+build_camera.spec
+build_recognition.spec
+

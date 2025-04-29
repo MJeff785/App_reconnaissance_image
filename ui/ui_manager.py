@@ -5,7 +5,7 @@ import os
 import cv2
 import numpy as np
 import pickle
-from face_recognition import FaceRecognition  # Add this import
+from src.face_recognition import FaceRecognition  # Add this import
 from styles import ModernStyle
 
 class UIManager:
@@ -14,10 +14,22 @@ class UIManager:
         self.image_processor = image_processor
         self.face_db = face_db
         self.face_recognition = FaceRecognition(db_connection, image_processor)
-        
+        self.present_students = []  # Liste des élèves présents
         self.window = tk.Tk()
-        self.window.title("Reconnaissance Faciale - Lycée Melkior")
+        self.window.title("EduFace Manager")
         self.window.geometry("1000x800")
+        
+        # Set window icon
+        try:
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'edu_face_logo.png')
+            if os.path.exists(icon_path):
+                icon_image = Image.open(icon_path)
+                icon_image = icon_image.resize((32, 32))
+                icon_photo = ImageTk.PhotoImage(icon_image)
+                self.window.iconphoto(False, icon_photo)
+                self._icon_photo = icon_photo  # Keep a reference
+        except Exception as e:
+            print(f"Error loading window icon: {e}")
         
         # Apply modern styles
         ModernStyle.apply(self.window)
@@ -25,6 +37,8 @@ class UIManager:
         # Main container
         self.main_frame = ttk.Frame(self.window, style='Modern.TFrame', padding=20)
         self.main_frame.pack(expand=True, fill='both')
+        self.show_present_btn = ttk.Button(self.main_frame, text="Présents", command=self.show_present_students_window)
+        self.show_present_btn.pack(anchor='ne', padx=10, pady=5)
         
         # Content frame
         self.content_frame = ttk.Frame(self.main_frame, style='Surface.TFrame')
@@ -199,11 +213,29 @@ class UIManager:
     
     def show_welcome(self):
         self.clear_content()
+        
+        # Create welcome frame
+        welcome_frame = ttk.Frame(self.content_frame, style='Modern.TFrame')
+        welcome_frame.pack(expand=True)
+        
+        # Add title
         welcome_label = ttk.Label(
-            self.content_frame, 
-            text="Bienvenue dans l'application de reconnaissance faciale\n\nChoisissez une option ci-dessus",
-            font=('Arial', 14)
+            welcome_frame,
+            text="Bienvenue dans EduFace Manager",
+            style='Title.TLabel'
         )
+        welcome_label.pack(pady=(20, 10))
+        
+        # Add logo
+        try:
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'edu_face_logo.png')
+            logo_image = Image.open(logo_path)
+            logo_image = logo_image.resize((400, 400))  # Adjust size as needed
+            self.logo_photo = ImageTk.PhotoImage(logo_image)
+            logo_label = ttk.Label(welcome_frame, image=self.logo_photo)
+            logo_label.pack(pady=(0, 20))
+        except Exception as e:
+            print(f"Error loading logo: {e}")
         welcome_label.pack(expand=True)
     
     def clear_content(self):
@@ -218,7 +250,8 @@ class UIManager:
     
     def show_recognition(self):
         self.clear_content()
-        self.face_recognition.setup_ui(self.content_frame)
+        # Pass self as the UI manager reference
+        self.face_recognition.setup_ui(self.content_frame, self)
     
     def create_form(self):
         form_frame = ttk.LabelFrame(
@@ -334,3 +367,109 @@ class UIManager:
         self.preview_label.configure(image='')
         if hasattr(self, 'current_image'):
             del self.current_image
+
+    def mark_student_present(self, student_data):
+        # Définir les horaires de début de cours pour différentes plages horaires
+        horaires_cours = {
+            "Matin": {"debut": "08:00", "fin": "12:00"},
+            "Après-midi": {"debut": "13:30", "fin": "17:30"}
+        }
+        
+        # Obtenir l'heure actuelle
+        heure_actuelle = student_data['heure']
+        
+        # Déterminer la période de cours actuelle
+        periode_actuelle = None
+        for periode, horaires in horaires_cours.items():
+            if horaires["debut"] <= heure_actuelle <= horaires["fin"]:
+                periode_actuelle = periode
+                break
+        
+        # Déterminer si l'étudiant est en retard
+        est_en_retard = False
+        if periode_actuelle:
+            # Tolérance de 10 minutes (à ajuster selon les règles de l'établissement)
+            heure_limite = horaires_cours[periode_actuelle]["debut"]
+            
+            # Convertir les heures en minutes depuis minuit pour faciliter la comparaison
+            h_limite, m_limite = map(int, heure_limite.split(':'))
+            h_actuelle, m_actuelle = map(int, heure_actuelle.split(':'))
+            
+            minutes_limite = h_limite * 60 + m_limite + 10  # 10 minutes de tolérance
+            minutes_actuelle = h_actuelle * 60 + m_actuelle
+            
+            est_en_retard = minutes_actuelle > minutes_limite
+        
+        # Ajouter l'information de retard et la période au dictionnaire student_data
+        student_data['periode'] = periode_actuelle if periode_actuelle else "Hors cours"
+        student_data['statut'] = "Retard" if est_en_retard else "À l'heure"
+        
+        # Ajoute l'élève à la liste des présents s'il n'y est pas déjà
+        if student_data not in self.present_students:
+            self.present_students.append(student_data)
+            # Optionnel : mettre à jour l'affichage
+            self.update_present_list_display()
+
+    def update_present_list_display(self):
+        # Méthode pour afficher la liste des présents dans l'interface (à adapter selon votre UI)
+        if not hasattr(self, 'present_listbox'):
+            self.present_listbox = tk.Listbox(self.content_frame, height=10)
+            self.present_listbox.pack(pady=10)
+        self.present_listbox.delete(0, tk.END)
+        for student in self.present_students:
+            self.present_listbox.insert(tk.END, f"{student['nom']} {student['prenom']} ({student['classe_nom']})")
+
+    # Exemple d'appel après détection (à placer dans la fonction de capture/détection)
+    def on_student_detected(self, student_data):
+        self.mark_student_present(student_data)
+        # ... autres actions (sauvegarde, affichage, etc.) ...
+
+    
+
+    def show_present_students_window(self):
+        # Create a new window
+        window = tk.Toplevel(self.window)
+        window.title("Liste des élèves présents")
+        window.geometry("800x400")  # Augmenté la taille pour accommoder plus de colonnes
+        
+        # Create a Treeview for tabular display
+        columns = ("Nom", "Prénom", "Classe", "Date", "Heure", "Période", "Statut")
+        tree = ttk.Treeview(window, columns=columns, show='headings')
+        for col in columns:
+            tree.heading(col, text=col)
+        tree.column("Nom", width=120)
+        tree.column("Prénom", width=120)
+        tree.column("Classe", width=100)
+        tree.column("Date", width=80)
+        tree.column("Heure", width=60)
+        tree.column("Période", width=100)
+        tree.column("Statut", width=80)
+        
+        # Insert present students with date, time and status
+        for student in self.present_students:
+            # Définir la couleur en fonction du statut
+            tag = "retard" if student.get('statut') == "Retard" else "present"
+            
+            tree.insert('', tk.END, values=(
+                student['nom'], 
+                student['prenom'], 
+                student['classe_nom'],
+                student.get('date', ''),
+                student.get('heure', ''),
+                student.get('periode', 'Non défini'),
+                student.get('statut', '')
+            ), tags=(tag,))
+        
+        # Configurer les couleurs pour les tags
+        tree.tag_configure('retard', background='#ffcccc')  # Rouge clair pour les retards
+        tree.tag_configure('present', background='#ccffcc')  # Vert clair pour les présents
+        
+        # Ajouter une scrollbar
+        scrollbar = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+        
+        tree.pack(expand=True, fill='both', padx=10, pady=10)
+        
+        # Optional: add a close button
+        ttk.Button(window, text="Fermer", command=window.destroy).pack(pady=5)

@@ -1,12 +1,19 @@
-from connection import DatabaseConnection
-from image_processor import ImageProcessor
-from face_database import FaceDatabase
-from ui_manager import UIManager
+from database.connection import DatabaseConnection
+from src.image_processor import ImageProcessor
+from database.face_database import FaceDatabase
+from ui.ui_manager import UIManager
+from tkinter import messagebox
 
 def main():
     try:
+        # Ask user for database choice
+        use_local = messagebox.askyesno(
+            "Database Selection",
+            "Do you want to use local database?\n\nYes = Local Database\nNo = MySQL Database"
+        )
+        
         # Initialize components
-        db = DatabaseConnection()
+        db = DatabaseConnection(use_local=use_local)
         image_processor = ImageProcessor()
         face_db = FaceDatabase(db)
         

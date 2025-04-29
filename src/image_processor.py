@@ -5,7 +5,7 @@ import os
 
 class ImageProcessor:
     def __init__(self):
-        # Use local cascade file instead of OpenCV's installation path
+        # Utiliser le fichier cascade local au lieu du chemin d'installation d'OpenCV
         cascade_path = os.path.join(os.path.dirname(__file__), 'cascades', 'haarcascade_frontalface_default.xml')
         if not os.path.exists(cascade_path):
             raise FileNotFoundError(f"Haar cascade file not found at: {cascade_path}")
@@ -15,7 +15,7 @@ class ImageProcessor:
             raise ValueError("Failed to load Haar cascade classifier")
     
     def detect_face(self, image_input):
-        # Handle both file paths and numpy arrays
+        # Gérer à la fois les chemins de fichiers et les tableaux numpy
         if isinstance(image_input, str):
             image = cv2.imread(image_input)
             if image is None:
@@ -34,7 +34,7 @@ class ImageProcessor:
         return faces[0]  # Returns (x, y, w, h)
     
     def extract_features(self, image_input, face_coords):
-        # Handle both file paths and numpy arrays
+        # Gérer à la fois les chemins de fichiers et les tableaux numpy
         if isinstance(image_input, str):
             image = cv2.imread(image_input)
         else:
@@ -47,24 +47,24 @@ class ImageProcessor:
         return face_resized.flatten().tolist()
     
     def save_face_image(self, image_path, student_data):
-        # Create main directory if it doesn't exist
+        # Créer le répertoire principal s'il n'existe pas
         if not os.path.exists('faces_imgs'):
             os.makedirs('faces_imgs')
         
-        # Create class directory (replace spaces with underscores)
+        # Créer le répertoire de la classe (remplacer les espaces par des underscores)
         class_name = student_data['classe_nom'].replace(' ', '_')
         class_dir = os.path.join('faces_imgs', class_name)
         if not os.path.exists(class_dir):
             os.makedirs(class_dir)
         
-        # Create student directory
+        # Créer le répertoire de l'étudiant
         student_name = f"{student_data['nom']}_{student_data['prenom']}"
         student_name = "".join(c for c in student_name if c.isalnum() or c in ('_', '-')).lower()
         student_dir = os.path.join(class_dir, student_name)
         if not os.path.exists(student_dir):
             os.makedirs(student_dir)
         
-        # Find next available number for image
+        # Trouver le prochain numéro disponible pour l'image
         i = 1
         while True:
             new_filename = f"{student_name}{i}.jpg"
@@ -73,7 +73,7 @@ class ImageProcessor:
                 break
             i += 1
         
-        # Copy and resize image
+        # Copier et redimensionner l'image
         image = Image.open(image_path)
         image = image.resize((200, 200))
         image.save(new_path)
