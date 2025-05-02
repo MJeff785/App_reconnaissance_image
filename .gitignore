@@ -13,6 +13,8 @@ faces_imgs/
 photos/
 key
 key.pub
+local.db
+database/local.db 
 
 # Keep cascades XML files
 !cascades/

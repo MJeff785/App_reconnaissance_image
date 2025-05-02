@@ -7,13 +7,14 @@ import numpy as np
 import pickle
 from src.face_recognition import FaceRecognition  # Add this import
 from styles import ModernStyle
+import time
 
 class UIManager:
     def __init__(self, db_connection, image_processor, face_db):
         self.db = db_connection
         self.image_processor = image_processor
         self.face_db = face_db
-        self.face_recognition = FaceRecognition(db_connection, image_processor)
+        self.face_recognition = FaceRecognition(db_connection, image_processor, self)  # Passer self comme référence
         self.present_students = []  # Liste des élèves présents
         self.window = tk.Tk()
         self.window.title("EduFace Manager")
@@ -37,8 +38,16 @@ class UIManager:
         # Main container
         self.main_frame = ttk.Frame(self.window, style='Modern.TFrame', padding=20)
         self.main_frame.pack(expand=True, fill='both')
-        self.show_present_btn = ttk.Button(self.main_frame, text="Présents", command=self.show_present_students_window)
-        self.show_present_btn.pack(anchor='ne', padx=10, pady=5)
+        
+        # Buttons frame
+        buttons_frame = ttk.Frame(self.main_frame)
+        buttons_frame.pack(anchor='ne', padx=10, pady=5)
+        
+        self.show_present_btn = ttk.Button(buttons_frame, text="Présents", command=self.show_present_students_window)
+        self.show_present_btn.pack(side='left', padx=5)
+        
+        self.show_absent_btn = ttk.Button(buttons_frame, text="Absences", command=self.show_absent_students_window)
+        self.show_absent_btn.pack(side='left', padx=5)
         
         # Content frame
         self.content_frame = ttk.Frame(self.main_frame, style='Surface.TFrame')
@@ -250,8 +259,8 @@ class UIManager:
     
     def show_recognition(self):
         self.clear_content()
-        # Pass self as the UI manager reference
-        self.face_recognition.setup_ui(self.content_frame, self)
+        # Modification de l'appel pour ne passer que le content_frame
+        self.face_recognition.setup_ui(self.content_frame)
     
     def create_form(self):
         form_frame = ttk.LabelFrame(
@@ -369,6 +378,7 @@ class UIManager:
             del self.current_image
 
     def mark_student_present(self, student_data):
+        """Marque un étudiant comme présent et met à jour la liste des présences"""
         # Définir les horaires de début de cours pour différentes plages horaires
         horaires_cours = {
             "Matin": {"debut": "08:00", "fin": "12:00"},
@@ -404,72 +414,357 @@ class UIManager:
         student_data['periode'] = periode_actuelle if periode_actuelle else "Hors cours"
         student_data['statut'] = "Retard" if est_en_retard else "À l'heure"
         
-        # Ajoute l'élève à la liste des présents s'il n'y est pas déjà
-        if student_data not in self.present_students:
+        # Créer une clé unique pour l'étudiant
+        student_key = f"{student_data['nom']}_{student_data['prenom']}_{student_data['classe_nom']}"
+        
+        # Vérifier si l'étudiant n'est pas déjà marqué comme présent
+        if student_key not in [f"{s['nom']}_{s['prenom']}_{s['classe_nom']}" for s in self.present_students]:
+            # Ajouter l'étudiant à la liste des présents
             self.present_students.append(student_data)
-            # Optionnel : mettre à jour l'affichage
+            
+            # Enregistrer la présence dans la base de données
+            self.db.execute_query("""
+                INSERT INTO Presences (etudiant_id, date_presence, heure_presence, statut)
+                SELECT e.id, %s, %s, %s
+                FROM Etudiants e
+                WHERE e.nom_famille = %s AND e.prenom = %s AND e.id_classe = %s
+            """, (
+                student_data['date'],
+                student_data['heure'],
+                student_data['statut'],  # Ajout du statut
+                student_data['nom'],
+                student_data['prenom'],
+                student_data['classe_id']
+            ))
+            
+            # Créer une fenêtre temporaire pour afficher la notification
+            notification_window = tk.Toplevel(self.window)
+            notification_window.title("Présence enregistrée")
+            notification_window.geometry("400x100")
+            
+            # Message de confirmation
+            message = f"{student_data['prenom']} {student_data['nom']} ({student_data['classe_nom']}) a été marqué comme {student_data['statut']}"
+            ttk.Label(notification_window, text=message, wraplength=350).pack(pady=20)
+            
+            # Fermer automatiquement après 3 secondes
+            notification_window.after(3000, notification_window.destroy)
+            
+            # Mettre à jour l'affichage des présents immédiatement
             self.update_present_list_display()
+            
+            print(f"Présence enregistrée pour {student_data['prenom']} {student_data['nom']}")
+
+    def get_current_period(self):
+        """Détermine la période actuelle (Matin ou Après-midi)"""
+        horaires_cours = {
+            "Matin": {"debut": "08:00", "fin": "12:00"},
+            "Après-midi": {"debut": "13:30", "fin": "17:30"}
+        }
+        
+        heure_actuelle = time.strftime('%H:%M')
+        
+        for periode, horaires in horaires_cours.items():
+            if horaires["debut"] <= heure_actuelle <= horaires["fin"]:
+                return periode
+        return "Hors cours"
+
+    def update_presence_status(self):
+        """Met à jour le statut des présences en fonction de l'heure"""
+        current_time = time.strftime('%H:%M')
+        
+        # Mettre à jour les statuts des présences terminées
+        self.db.execute_query("""
+            UPDATE Presences 
+            SET statut = 'Terminé'
+            WHERE date_presence = CURRENT_DATE
+            AND heure_fin <= %s
+            AND statut IN ('Présent', 'Retard')
+        """, (current_time,))
+        
+        # Mettre à jour la liste d'affichage
+        periode_actuelle = self.get_current_period()
+        self.present_students = [s for s in self.present_students 
+                               if s['periode'] == periode_actuelle]
+        self.update_present_list_display()
 
     def update_present_list_display(self):
-        # Méthode pour afficher la liste des présents dans l'interface (à adapter selon votre UI)
+        # Créer la listbox si elle n'existe pas déjà
         if not hasattr(self, 'present_listbox'):
-            self.present_listbox = tk.Listbox(self.content_frame, height=10)
-            self.present_listbox.pack(pady=10)
-        self.present_listbox.delete(0, tk.END)
+            self.present_listbox = ttk.Treeview(self.content_frame, columns=("Nom", "Prénom", "Classe", "Heure", "Statut"))
+            self.present_listbox.heading("Nom", text="Nom")
+            self.present_listbox.heading("Prénom", text="Prénom")
+            self.present_listbox.heading("Classe", text="Classe")
+            self.present_listbox.heading("Heure", text="Heure")
+            self.present_listbox.heading("Statut", text="Statut")
+            self.present_listbox.pack(pady=10, fill='both', expand=True)
+        
+        # Effacer les entrées existantes
+        for item in self.present_listbox.get_children():
+            self.present_listbox.delete(item)
+        
+        # Ajouter les étudiants présents
         for student in self.present_students:
-            self.present_listbox.insert(tk.END, f"{student['nom']} {student['prenom']} ({student['classe_nom']})")
+            self.present_listbox.insert("", "end", values=(
+                student['nom'],
+                student['prenom'],
+                student['classe_nom'],
+                student.get('heure', ''),
+                student.get('statut', '')
+            ))
 
     # Exemple d'appel après détection (à placer dans la fonction de capture/détection)
     def on_student_detected(self, student_data):
         self.mark_student_present(student_data)
-        # ... autres actions (sauvegarde, affichage, etc.) ...
+        # ... autres actions (sauvegarde, affichage, etc.) .
 
     
 
     def show_present_students_window(self):
-        # Create a new window
-        window = tk.Toplevel(self.window)
-        window.title("Liste des élèves présents")
-        window.geometry("800x400")  # Augmenté la taille pour accommoder plus de colonnes
+        # Créer une nouvelle fenêtre
+        present_window = tk.Toplevel(self.window)
+        present_window.title("Étudiants présents")
+        present_window.geometry("800x600")
         
-        # Create a Treeview for tabular display
-        columns = ("Nom", "Prénom", "Classe", "Date", "Heure", "Période", "Statut")
-        tree = ttk.Treeview(window, columns=columns, show='headings')
-        for col in columns:
-            tree.heading(col, text=col)
-        tree.column("Nom", width=120)
-        tree.column("Prénom", width=120)
-        tree.column("Classe", width=100)
-        tree.column("Date", width=80)
-        tree.column("Heure", width=60)
-        tree.column("Période", width=100)
-        tree.column("Statut", width=80)
+        # Frame principal
+        main_frame = ttk.Frame(present_window, padding="20")
+        main_frame.pack(fill='both', expand=True)
         
-        # Insert present students with date, time and status
-        for student in self.present_students:
-            # Définir la couleur en fonction du statut
-            tag = "retard" if student.get('statut') == "Retard" else "present"
-            
-            tree.insert('', tk.END, values=(
-                student['nom'], 
-                student['prenom'], 
-                student['classe_nom'],
-                student.get('date', ''),
-                student.get('heure', ''),
-                student.get('periode', 'Non défini'),
-                student.get('statut', '')
-            ), tags=(tag,))
+        # Frame pour la sélection de classe
+        select_frame = ttk.Frame(main_frame)
+        select_frame.pack(fill='x', pady=(0, 10))
         
-        # Configurer les couleurs pour les tags
-        tree.tag_configure('retard', background='#ffcccc')  # Rouge clair pour les retards
-        tree.tag_configure('present', background='#ccffcc')  # Vert clair pour les présents
+        ttk.Label(select_frame, text="Filtrer par classe :").pack(side='left', padx=(0, 10))
+        
+        # Récupérer toutes les classes
+        classes = self.db.execute_query("SELECT id, nom_classe FROM Classe ORDER BY nom_classe")
+        classe_combo = ttk.Combobox(select_frame, values=['Toutes les classes'] + 
+                                  [f"{c[0]} - {c[1]}" for c in classes], state='readonly')
+        classe_combo.set('Toutes les classes')
+        classe_combo.pack(side='left')
+        
+        # Créer le Treeview pour afficher les présences
+        present_tree = ttk.Treeview(main_frame, columns=("Nom", "Prénom", "Classe", "Heure", "Statut"))
+        present_tree.heading("Nom", text="Nom")
+        present_tree.heading("Prénom", text="Prénom")
+        present_tree.heading("Classe", text="Classe")
+        present_tree.heading("Heure", text="Heure")
+        present_tree.heading("Statut", text="Statut")
+        
+        # Masquer la première colonne (ID)
+        present_tree["show"] = "headings"
         
         # Ajouter une scrollbar
-        scrollbar = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side='right', fill='y')
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=present_tree.yview)
+        present_tree.configure(yscrollcommand=scrollbar.set)
         
-        tree.pack(expand=True, fill='both', padx=10, pady=10)
+        # Placement des widgets
+        present_tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
-        # Optional: add a close button
-        ttk.Button(window, text="Fermer", command=window.destroy).pack(pady=5)
+        def update_list(*args):
+            # Effacer la liste actuelle
+            for item in present_tree.get_children():
+                present_tree.delete(item)
+            
+            selected_class = classe_combo.get()
+            
+            if selected_class == 'Toutes les classes':
+                # Afficher tous les étudiants présents
+                for student in self.present_students:
+                    present_tree.insert("", "end", values=(
+                        student['nom'],
+                        student['prenom'],
+                        student['classe_nom'],
+                        student['heure'],
+                        student['statut']
+                    ))
+            else:
+                # Extraire l'ID de la classe sélectionnée
+                classe_id = selected_class.split(' - ')[0]
+                
+                # Filtrer les étudiants de la classe sélectionnée
+                filtered_students = [s for s in self.present_students 
+                                  if s['classe_id'] == classe_id]
+                
+                for student in filtered_students:
+                    present_tree.insert("", "end", values=(
+                        student['nom'],
+                        student['prenom'],
+                        student['classe_nom'],
+                        student['heure'],
+                        student['statut']
+                    ))
+        
+        # Lier la mise à jour à la sélection de classe
+        classe_combo.bind('<<ComboboxSelected>>', update_list)
+        
+        # Bouton de fermeture
+        ttk.Button(main_frame, text="Fermer", 
+                  command=present_window.destroy).pack(pady=10)
+        
+        # Afficher la liste initiale
+        update_list()
+        
+        def show_presence_for_class():
+            if not classe_combo.get():
+                messagebox.showerror("Erreur", "Veuillez sélectionner une classe")
+                return
+                
+            # Récupérer les informations de la classe avant de détruire la fenêtre
+            classe_info = classe_combo.get().split(' - ')
+            classe_id = classe_info[0]
+            classe_nom = classe_info[1]
+            
+            # Fermer la fenêtre de sélection
+            present_window.destroy()
+            
+            # Créer la fenêtre d'affichage des présences
+            presence_window = tk.Toplevel(self.window)
+            presence_window.title(f"Liste des élèves présents - {classe_nom}")
+            presence_window.geometry("800x400")
+            
+            # Créer le Treeview pour l'affichage
+            columns = ("Nom", "Prénom", "Date", "Heure", "Période", "Statut")
+            tree = ttk.Treeview(presence_window, columns=columns, show='headings')
+            for col in columns:
+                tree.heading(col, text=col)
+            tree.column("Nom", width=120)
+            tree.column("Prénom", width=120)
+            tree.column("Date", width=80)
+            tree.column("Heure", width=60)
+            tree.column("Période", width=100)
+            tree.column("Statut", width=80)
+            
+            # Filtrer les étudiants présents par classe
+            filtered_students = [
+                student for student in self.present_students 
+                if student.get('classe_id') == classe_id
+            ]
+            
+            # Insérer les étudiants filtrés
+            for student in filtered_students:
+                tag = "retard" if student.get('statut') == "Retard" else "present"
+                tree.insert('', tk.END, values=(
+                    student['nom'],
+                    student['prenom'],
+                    student.get('date', ''),
+                    student.get('heure', ''),
+                    student.get('periode', 'Non défini'),
+                    student.get('statut', '')
+                ), tags=(tag,))
+            
+            # Configurer les couleurs
+            tree.tag_configure('retard', background='#ffcccc')  # Rouge clair pour les retards
+            tree.tag_configure('present', background='#ccffcc')  # Vert clair pour les présents
+            
+            # Ajouter une scrollbar
+            scrollbar = ttk.Scrollbar(presence_window, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side='right', fill='y')
+            
+            tree.pack(expand=True, fill='both', padx=10, pady=10)
+            
+            # Bouton de fermeture
+            ttk.Button(presence_window, text="Fermer", 
+                      command=presence_window.destroy).pack(pady=5)
+        
+        # Boutons
+        btn_frame = ttk.Frame(select_frame)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="Afficher", 
+                  command=show_presence_for_class).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Annuler", 
+                  command=present_window.destroy).pack(side='left', padx=5)
+    def show_absent_students_window(self):
+        # Créer une fenêtre de sélection de classe
+        select_window = tk.Toplevel(self.window)
+        select_window.title("Sélectionner une classe")
+        select_window.geometry("400x200")
+        
+        # Frame pour la sélection
+        select_frame = ttk.Frame(select_window, padding="20")
+        select_frame.pack(expand=True, fill='both')
+        
+        # Label
+        ttk.Label(select_frame, text="Choisissez une classe :", 
+                 font=('Helvetica', 12)).pack(pady=10)
+        
+        # Récupérer toutes les classes
+        classes = self.db.execute_query("SELECT id, nom_classe FROM Classe ORDER BY nom_classe")
+        
+        # Combobox pour la sélection de classe
+        classe_combo = ttk.Combobox(select_frame, 
+            values=[f"{c[0]} - {c[1]}" for c in classes],
+            state='readonly',
+            font=('Helvetica', 11))
+        classe_combo.pack(pady=10)
+        
+        def show_absence_for_class():
+            if not classe_combo.get():
+                messagebox.showerror("Erreur", "Veuillez sélectionner une classe")
+                return
+                
+            # Récupérer les informations de la classe avant de détruire la fenêtre
+            classe_info = classe_combo.get().split(' - ')
+            classe_id = classe_info[0]
+            classe_nom = classe_info[1]
+            
+            # Fermer la fenêtre de sélection
+            select_window.destroy()
+            
+            # Créer la fenêtre d'affichage des absences
+            absence_window = tk.Toplevel(self.window)
+            absence_window.title(f"Liste des élèves absents - {classe_nom}")
+            absence_window.geometry("800x400")
+            
+            # Créer le Treeview pour l'affichage
+            columns = ("Nom", "Prénom", "Date", "Période")
+            tree = ttk.Treeview(absence_window, columns=columns, show='headings')
+            for col in columns:
+                tree.heading(col, text=col)
+            tree.column("Nom", width=120)
+            tree.column("Prénom", width=120)
+            tree.column("Date", width=80)
+            tree.column("Période", width=100)
+            
+            # Récupérer tous les étudiants de la classe
+            all_students = self.db.execute_query("""
+                SELECT e.nom_famille, e.prenom
+                FROM Etudiants e
+                WHERE e.id_classe = %s
+                ORDER BY e.nom_famille, e.prenom
+            """, (classe_id,))
+            
+            # Filtrer pour obtenir les absents (ceux qui ne sont pas dans present_students)
+            present_ids = {(s['nom'], s['prenom']) for s in self.present_students if s.get('classe_id') == classe_id}
+            
+            # Insérer les étudiants absents
+            for student in all_students:
+                if (student[0], student[1]) not in present_ids:
+                    tree.insert('', tk.END, values=(
+                        student[0],  # nom
+                        student[1],  # prénom
+                        "Aujourd'hui",  # date
+                        "Journée complète"  # période
+                    ))
+            
+            # Ajouter une scrollbar
+            scrollbar = ttk.Scrollbar(absence_window, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side='right', fill='y')
+            
+            tree.pack(expand=True, fill='both', padx=10, pady=10)
+            
+            # Bouton de fermeture
+            ttk.Button(absence_window, text="Fermer", 
+                      command=absence_window.destroy).pack(pady=5)
+        
+        # Boutons
+        btn_frame = ttk.Frame(select_frame)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="Afficher", 
+                  command=show_absence_for_class).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Annuler", 
+                  command=select_window.destroy).pack(side='left', padx=5)

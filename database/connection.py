@@ -62,6 +62,18 @@ class DatabaseConnection:
                         date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (etudiant_id) REFERENCES Etudiants(id)
                     );
+                    
+                    CREATE TABLE IF NOT EXISTS Presences (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        etudiant_id INTEGER NOT NULL,
+                        date_presence DATE NOT NULL,
+                        heure_presence TIME NOT NULL,
+                        heure_fin TIME,
+                        periode VARCHAR(20) NOT NULL, 
+                        statut VARCHAR(20) NOT NULL,   
+                        FOREIGN KEY (etudiant_id) REFERENCES Etudiants(id)
+                    );
+                    
                 ''')
                 
                 # Vérifier si la table Classe est vide et insérer les données par défaut

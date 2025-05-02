@@ -5,23 +5,32 @@ from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 import pickle
 import os
-import time  # Ajout de l'import time
-import datetime  # Ajout pour formater la date et l'heure
+import time
 
 class FaceRecognition:
-    def __init__(self, db_connection, image_processor):
+    def __init__(self, db_connection, image_processor, ui_manager):
         self.db = db_connection
         self.image_processor = image_processor
+        self.ui_manager = ui_manager  # Stocker la référence à UIManager
         self.cap = None
-        self.last_detection_time = 0  # Initialize the last detection time
-    
-    def setup_ui(self, parent_frame, ui_manager):
+        self.last_detection_time = 0
+        self.detection_cooldown = 20
+
+    def setup_ui(self, parent_frame):
         self.parent_frame = parent_frame
-        self.ui_manager = ui_manager  # Store UI manager reference
+        # Plus besoin de chercher UIManager car nous l'avons déjà
         
         # Affichage de la caméra
         self.camera_label = ttk.Label(parent_frame)
         self.camera_label.pack(pady=10)
+        
+        # Affichage du niveau de confiance
+        self.confidence_label = ttk.Label(parent_frame, text="Correspondance: ---%", font=('Arial', 12))
+        self.confidence_label.pack(pady=5)
+        
+        # Bouton de capture
+        ttk.Button(parent_frame, text="Capturer", 
+                  command=self.capture_face).pack(pady=10)
         
         # Démarrer la caméra
         self.start_camera()
@@ -31,71 +40,86 @@ class FaceRecognition:
             ret, frame = self.cap.read()
             if ret:
                 try:
-                    current_time = time.time()
                     # Process face and update confidence
                     face_coords = self.image_processor.detect_face(frame)
                     face_features = self.image_processor.extract_features(frame, face_coords)
                     
                     # Get database faces and find best match
                     results = self.db.execute_query("""
-                        SELECT e.id, e.nom_famille, e.prenom, f.face_encoding, c.nom_classe
+                        SELECT e.nom_famille, e.prenom, f.face_encoding, c.nom_classe
                         FROM Etudiants e
                         JOIN FaceFeatures f ON e.id = f.etudiant_id
                         JOIN Classe c ON e.id_classe = c.id
                     """)
                     
                     highest_confidence = 0
-                    best_match = None
+                    best_name = ""
+                    best_class = ""
                     
                     for result in results:
                         try:
-                            stored_encoding = pickle.loads(result[3])
+                            stored_encoding = pickle.loads(result[2])
                             confidence = self.compare_faces(face_features, stored_encoding)
                             if confidence > highest_confidence:
                                 highest_confidence = confidence
-                                best_match = result
+                                best_name = f"{result[1]} {result[0]}"
+                                best_class = result[3]
                         except Exception as e:
                             print(f"Error processing encoding: {e}")
                     
-                    # Mark presence if confidence > 95%
-                    if highest_confidence > 95 and best_match:
-                        # Vérifier le délai depuis la dernière détection (3 secondes minimum)
-                        if current_time - self.last_detection_time > 3:
-                            # Obtenir la date et l'heure formatées (sans secondes)
-                            now = datetime.datetime.now()
-                            formatted_date = now.strftime("%d/%m/%Y")
-                            formatted_time = now.strftime("%H:%M")
+                    # Update confidence label if it still exists
+                    if hasattr(self, 'confidence_label') and self.confidence_label.winfo_exists():
+                        current_time = time.time()
+                        if highest_confidence >= 90 and (current_time - self.last_detection_time) >= self.detection_cooldown:
+                            message = f"Visage détecté : {best_name}, {best_class}"
+                            self.confidence_label.config(
+                                text=message,
+                                foreground='green'
+                            )
                             
+                            # Créer les données de l'étudiant pour la présence
+                            nom, prenom = best_name.split(' ', 1)
                             student_data = {
-                                'id': best_match[0],
-                                'nom': best_match[1],
-                                'prenom': best_match[2],
-                                'classe_nom': best_match[4],
-                                'date': formatted_date,
-                                'heure': formatted_time
+                                'nom': nom,
+                                'prenom': prenom,
+                                'classe_nom': best_class,
+                                'classe_id': self.get_class_id(best_class),
+                                'date': time.strftime('%Y-%m-%d'),
+                                'heure': time.strftime('%H:%M')
                             }
-                            if hasattr(self, 'ui_manager'):
-                                self.ui_manager.mark_student_present(student_data)
-                                self.last_detection_time = current_time
                             
+                            # Marquer l'étudiant comme présent
+                            self.ui_manager.mark_student_present(student_data)
+                            
+                            self.last_detection_time = current_time
+                            
+                    elif highest_confidence > 0:
+                        self.confidence_label.config(
+                            text=f"Correspondance: {highest_confidence:.1f}%",
+                            foreground='black'
+                        )
+                    else:
+                            self.confidence_label.config(
+                                text="Aucun visage détecté",
+                                foreground='black'
+                            )
+                    
                 except ValueError:
-                    pass
+                    # No face detected - update label if it exists
+                    if hasattr(self, 'confidence_label') and self.confidence_label.winfo_exists():
+                        self.confidence_label.config(text="Aucun visage détecté", foreground='black')
                 except Exception as e:
                     print(f"Error in face recognition: {e}")
                 
                 # Update camera display
-                try:
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    image = Image.fromarray(frame_rgb)
-                    image = image.resize((640, 480))
-                    self.current_photo = ImageTk.PhotoImage(image=image)
-                    self.camera_label.configure(image=self.current_photo)
-                except Exception as e:
-                    print(f"Error updating camera display: {e}")
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(frame_rgb)
+                image = image.resize((640, 480))
+                self.photo = ImageTk.PhotoImage(image=image)
                 
-                # Schedule next update only once
                 if hasattr(self, 'camera_label') and self.camera_label.winfo_exists():
-                    self.camera_label.after(10, self.update_camera)
+                    self.camera_label.configure(image=self.photo)
+                    self.parent_frame.after(10, self.update_camera)
     
     def start_camera(self):
         self.cap = cv2.VideoCapture(0)
@@ -133,7 +157,7 @@ class FaceRecognition:
                     
                     # Get database faces
                     results = self.db.execute_query("""
-                        SELECT e.id, e.nom_famille, e.prenom, f.face_encoding, c.nom_classe
+                        SELECT e.nom_famille, e.prenom, f.face_encoding, c.nom_classe
                         FROM Etudiants e
                         JOIN FaceFeatures f ON e.id = f.etudiant_id
                         JOIN Classe c ON e.id_classe = c.id
@@ -144,39 +168,20 @@ class FaceRecognition:
                     highest_confidence = 0
                     
                     for result in results:
-                        stored_encoding = pickle.loads(result[3])
+                        stored_encoding = pickle.loads(result[2])
                         confidence = self.compare_faces(face_features, stored_encoding)
                         
                         if confidence > highest_confidence:
                             highest_confidence = confidence
                             best_match = result
                     
-                    # Show results and update presence if confidence is high enough
+                    # Show results
                     if highest_confidence > 60:
-                        # Obtenir la date et l'heure formatées au moment de la capture
-                        now = datetime.datetime.now()
-                        formatted_date = now.strftime("%d/%m/%Y")
-                        formatted_time = now.strftime("%H:%M")
-                        
-                        student_data = {
-                            'id': best_match[0],
-                            'nom': best_match[1],
-                            'prenom': best_match[2],
-                            'classe_nom': best_match[4],
-                            'date': formatted_date,
-                            'heure': formatted_time
-                        }
-                        # Call the UI manager's method directly
-                        if hasattr(self, 'ui_manager'):
-                            self.ui_manager.mark_student_present(student_data)
-                        
                         messagebox.showinfo("Reconnaissance Réussie", 
                             f"Étudiant identifié :\n"
-                            f"Nom : {best_match[1]}\n"
-                            f"Prénom : {best_match[2]}\n"
-                            f"Classe : {best_match[4]}\n"
-                            f"Date : {formatted_date}\n"
-                            f"Heure : {formatted_time}\n"
+                            f"Nom : {best_match[0] if best_match else 'Non reconnu'}\n"
+                            f"Prénom : {best_match[1] if best_match else 'Non reconnu'}\n"
+                            f"Classe : {best_match[3] if best_match else 'Non reconnu'}\n"
                             f"Confiance : {highest_confidence:.2f}%"
                         )
                     else:
@@ -222,9 +227,11 @@ class FaceRecognition:
         if self.cap is not None:
             self.cap.release()
             self.cap = None
-
-    def on_student_detected(self, student_data):
-        # When a student is detected, call the UIManager's method
-        if hasattr(self, 'ui_manager'):
-            self.ui_manager.on_student_detected(student_data)
-            
+    
+    def get_class_id(self, class_name):
+        # Récupérer l'ID de la classe à partir du nom
+        result = self.db.execute_query(
+            "SELECT id FROM Classe WHERE nom_classe = %s",
+            (class_name,)
+        )
+        return result[0][0] if result else None
