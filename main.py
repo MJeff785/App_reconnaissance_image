@@ -6,18 +6,18 @@ from tkinter import messagebox
 
 def main():
     try:
-        # Ask user for database choice
+        # Demande à l'utilisateur s'il veut utiliser la base de données locale ou MySQL
         use_local = messagebox.askyesno(
-            "Database Selection",
-            "Do you want to use local database?\n\nYes = Local Database\nNo = MySQL Database"
+            "Sélection de la base de données",
+            "Veut-tu utiliser la base de donnée local?\n\nOui = Local Database\nNon = MySQL Database"
         )
         
-        # Initialize components
+        # Initialisation de la base de données et du gestionnaire d'interface utilisateur
         db = DatabaseConnection(use_local=use_local)
         image_processor = ImageProcessor()
         face_db = FaceDatabase(db)
         
-        # Start UI
+        # Démarrage de l'application avec le gestionnaire d'interface utilisateur
         app = UIManager(db, image_processor, face_db)
         app.window.mainloop()
         

@@ -9,6 +9,7 @@ venv/
 env/
 
 # Project specific
+exports/
 faces_imgs/
 photos/
 key

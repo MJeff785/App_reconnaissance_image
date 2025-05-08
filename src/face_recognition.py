@@ -11,28 +11,19 @@ class FaceRecognition:
     def __init__(self, db_connection, image_processor, ui_manager):
         self.db = db_connection
         self.image_processor = image_processor
-        self.ui_manager = ui_manager  # Stocker la référence à UIManager
+        self.ui_manager = ui_manager
         self.cap = None
         self.last_detection_time = 0
         self.detection_cooldown = 20
 
     def setup_ui(self, parent_frame):
         self.parent_frame = parent_frame
-        # Plus besoin de chercher UIManager car nous l'avons déjà
-        
-        # Affichage de la caméra
         self.camera_label = ttk.Label(parent_frame)
         self.camera_label.pack(pady=10)
         
-        # Affichage du niveau de confiance
         self.confidence_label = ttk.Label(parent_frame, text="Correspondance: ---%", font=('Arial', 12))
         self.confidence_label.pack(pady=5)
         
-        # Bouton de capture
-        ttk.Button(parent_frame, text="Capturer", 
-                  command=self.capture_face).pack(pady=10)
-        
-        # Démarrer la caméra
         self.start_camera()
 
     def update_camera(self):
@@ -120,11 +111,11 @@ class FaceRecognition:
                 if hasattr(self, 'camera_label') and self.camera_label.winfo_exists():
                     self.camera_label.configure(image=self.photo)
                     self.parent_frame.after(10, self.update_camera)
-    
+
     def start_camera(self):
         self.cap = cv2.VideoCapture(0)
         self.update_camera()
-    
+
     def process_image(self, image_path):
         face_coords = self.image_processor.detect_face(image_path)
         return {
@@ -132,7 +123,7 @@ class FaceRecognition:
             'coords': face_coords,
             'encoding': self.image_processor.extract_features(image_path, face_coords)
         }
-    
+
     def save_student(self, student_data, image_data):
         # Save image to directory
         new_image_path = self.image_processor.save_face_image(
@@ -145,7 +136,7 @@ class FaceRecognition:
         
         # Save to database
         self.db.save_student_face(student_data, image_data)
-    
+
     def capture_face(self):
         if self.cap is not None:
             ret, frame = self.cap.read()
@@ -191,7 +182,7 @@ class FaceRecognition:
                     
                 except Exception as e:
                     messagebox.showerror("Erreur", str(e))
-    
+
     def compare_faces(self, face1_features, face2_features):
         try:
             face1 = np.array(face1_features).flatten()
@@ -222,14 +213,13 @@ class FaceRecognition:
         except Exception as e:
             print(f"Error in compare_faces: {e}")
             return 0
-    
+
     def stop_camera(self):
         if self.cap is not None:
             self.cap.release()
             self.cap = None
-    
+
     def get_class_id(self, class_name):
-        # Récupérer l'ID de la classe à partir du nom
         result = self.db.execute_query(
             "SELECT id FROM Classe WHERE nom_classe = %s",
             (class_name,)
