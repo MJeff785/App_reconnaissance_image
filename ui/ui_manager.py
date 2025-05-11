@@ -5,7 +5,7 @@ import os
 import cv2
 import numpy as np
 import pickle
-from src.face_recognition import FaceRecognition  # Add this import
+from src.face_recognition import FaceRecognition 
 from styles import ModernStyle
 import time
 
@@ -20,15 +20,15 @@ class UIManager:
         self.window.title("EduFace Manager")
         self.window.geometry("1000x800")
         
-        # Set window icon
+        # Charger et définir l'icône
         try:
             icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'edu_face_logo.png')
             if os.path.exists(icon_path):
                 icon_image = Image.open(icon_path)
                 icon_image = icon_image.resize((32, 32))
                 icon_photo = ImageTk.PhotoImage(icon_image)
-                self.window.iconphoto(False, icon_photo)
-                self._icon_photo = icon_photo  # Keep a reference
+                self.window.tk.call(True, icon_photo)
+                self._icon_photo = icon_photo  # Stocker la référence pour éviter la suppression par garbage collection
         except Exception as e:
             print(f"Error loading window icon: {e}")
         
@@ -407,7 +407,7 @@ class UIManager:
         """Marque un étudiant comme présent et met à jour la liste des présences"""
         # Définir les horaires de début de cours pour différentes plages horaires
         horaires_cours = {
-            "Matin": {"debut": "08:00", "fin": "12:00"},
+            "Matin": {"debut": "07:00", "fin": "12:00"},
             "Après-midi": {"debut": "13:30", "fin": "17:30"}
         }
         
@@ -421,11 +421,17 @@ class UIManager:
                 periode_actuelle = periode
                 break
         
-        # Déterminer si l'étudiant est en retard
+        # Si aucune période n'est trouvée, définir comme "Hors cours"
+        if not periode_actuelle:
+            periode_actuelle = "Hors cours"
+        
+        # Déterminer si l'étudiant est en retard et l'heure de fin
         est_en_retard = False
+        heure_fin = None
         if periode_actuelle:
-            # Tolérance de 10 minutes (à ajuster selon les règles de l'établissement)
+            # Tolérance de 10 minutes
             heure_limite = horaires_cours[periode_actuelle]["debut"]
+            heure_fin = horaires_cours[periode_actuelle]["fin"]
             
             # Convertir les heures en minutes depuis minuit pour faciliter la comparaison
             h_limite, m_limite = map(int, heure_limite.split(':'))
@@ -437,8 +443,9 @@ class UIManager:
             est_en_retard = minutes_actuelle > minutes_limite
         
         # Ajouter l'information de retard et la période au dictionnaire student_data
-        student_data['periode'] = periode_actuelle if periode_actuelle else "Hors cours"
-        student_data['statut'] = "Retard" if est_en_retard else "À l'heure"
+        student_data['periode'] = periode_actuelle
+        student_data['statut'] = "Retard" if est_en_retard else "Présent"
+        student_data['heure_fin'] = heure_fin
         
         # Créer une clé unique pour l'étudiant
         student_key = f"{student_data['nom']}_{student_data['prenom']}_{student_data['classe_nom']}"
@@ -450,17 +457,28 @@ class UIManager:
             
             # Enregistrer la présence dans la base de données
             self.db.execute_query("""
-                INSERT INTO Presences (etudiant_id, date_presence, heure_presence, statut)
-                SELECT e.id, %s, %s, %s
+                INSERT INTO Presences (etudiant_id, date_presence, heure_presence, heure_fin, periode, statut)
+                SELECT e.id, %s, %s, %s, %s, %s
                 FROM Etudiants e
                 WHERE e.nom_famille = %s AND e.prenom = %s AND e.id_classe = %s
+                ON DUPLICATE KEY UPDATE 
+                    statut = %s,
+                    heure_presence = %s,
+                    heure_fin = %s,
+                    periode = %s
             """, (
                 student_data['date'],
                 student_data['heure'],
-                student_data['statut'],  # Ajout du statut
+                student_data['heure_fin'],
+                student_data['periode'],
+                student_data['statut'],
                 student_data['nom'],
                 student_data['prenom'],
-                student_data['classe_id']
+                student_data['classe_id'],
+                student_data['statut'],
+                student_data['heure'],
+                student_data['heure_fin'],
+                student_data['periode']
             ))
             
             # Créer une fenêtre temporaire pour afficher la notification
@@ -562,11 +580,12 @@ class UIManager:
                     student['statut']
                 ), tags=(tag,))
                 
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour de l'affichage: {e}")
+        
         except tk.TclError:
             # Si le widget n'existe plus, on ne fait rien
             pass
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour de l'affichage: {e}")
 
     # Exemple d'appel après détection (à placer dans la fonction de capture/détection)
     def on_student_detected(self, student_data):
@@ -574,74 +593,73 @@ class UIManager:
         # ... autres actions (sauvegarde, affichage, etc.) 
 
     def check_absences(self):
-        """Vérifie et marque les élèves absents"""
-        # Obtenir la période actuelle
-        periode_actuelle = self.get_current_period()
-        if periode_actuelle == "Hors cours":
-            messagebox.showinfo("Information", "Aucun cours n'est prévu à cette heure")
-            return
-        
-        # Obtenir la date du jour
-        date_actuelle = time.strftime('%Y-%m-%d')
-        
-        # Construire la requête SQL en fonction du filtre de classe
-        classe_filter = self.classe_filter.get()
-        if classe_filter == 'Toutes les classes':
-            query = """
-                SELECT e.id, e.nom_famille, e.prenom, c.id as classe_id, c.nom_classe
-                FROM Etudiants e
-                JOIN Classe c ON e.id_classe = c.id
-                WHERE e.actif = 1
-            """
-            params = ()
-        else:
-            query = """
-                SELECT e.id, e.nom_famille, e.prenom, c.id as classe_id, c.nom_classe
-                FROM Etudiants e
-                JOIN Classe c ON e.id_classe = c.id
-                WHERE e.actif = 1 AND c.nom_classe = %s
-            """
-            params = (classe_filter,)
-        
-        # Récupérer tous les élèves qui devraient être présents
-        eleves_attendus = self.db.execute_query(query, params) or []  # Retourne une liste vide si None
-        
-        if not eleves_attendus:
-            messagebox.showinfo("Information", "Aucun élève trouvé pour cette classe")
-            return
-        
-        # Vérifier les présences
-        for eleve in eleves_attendus:
-            eleve_present = False
-            for present in self.present_students:
-                if (present['nom'] == eleve[1] and 
-                    present['prenom'] == eleve[2]):
-                    eleve_present = True
-                    break
+        """Vérifie et affiche les étudiants absents"""
+        try:
+            # Obtenir la date actuelle
+            current_date = time.strftime('%Y-%m-%d')
+            current_time = time.strftime('%H:%M')
             
-            if not eleve_present:
-                # Ajouter l'élève comme absent dans la base de données
-                self.db.execute_query("""
-                    INSERT INTO Presences (etudiant_id, date_presence, heure_presence, statut)
-                    VALUES (%s, %s, %s, 'Absent')
-                    ON DUPLICATE KEY UPDATE statut = 'Absent'
-                """, (eleve[0], date_actuelle, time.strftime('%H:%M')))
+            # Obtenir tous les étudiants
+            query = """
+                SELECT e.id, e.nom_famille, e.prenom, c.nom_classe, c.id as classe_id
+                FROM Etudiants e
+                JOIN Classe c ON e.id_classe = c.id
+            """
+            
+            # Appliquer le filtre de classe si sélectionné
+            if self.classe_filter.get() != 'Toutes les classes':
+                query += " WHERE c.nom_classe = %s"
+                students = self.db.execute_query(query, (self.classe_filter.get(),))
+            else:
+                students = self.db.execute_query(query)
+
+            # Créer une nouvelle fenêtre pour afficher les absents
+            absent_window = tk.Toplevel(self.window)
+            absent_window.title("Liste des absents")
+            absent_window.geometry("600x400")
+
+            # Créer un Treeview pour afficher les absents
+            columns = ('nom', 'prenom', 'classe', 'statut')
+            tree = ttk.Treeview(absent_window, columns=columns, show='headings')
+            
+            # Définir les en-têtes
+            tree.heading('nom', text='Nom')
+            tree.heading('prenom', text='Prénom')
+            tree.heading('classe', text='Classe')
+            tree.heading('statut', text='Statut')
+
+            # Ajouter une barre de défilement
+            scrollbar = ttk.Scrollbar(absent_window, orient='vertical', command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            # Placer les éléments
+            tree.pack(side='left', fill='both', expand=True)
+            scrollbar.pack(side='right', fill='y')
+
+            # Pour chaque étudiant, vérifier s'il est présent
+            for student in students:
+                student_id, nom, prenom, classe, classe_id = student
                 
-                # Ajouter à la liste d'affichage
-                self.present_students.append({
-                    'nom': eleve[1],
-                    'prenom': eleve[2],
-                    'classe_id': str(eleve[3]),
-                    'classe_nom': eleve[4],
-                    'date': date_actuelle,
-                    'heure': time.strftime('%H:%M'),
-                    'statut': 'Absent',
-                    'periode': periode_actuelle
-                })
-        
-        # Mettre à jour l'affichage
-        self.update_present_list_display()
-        messagebox.showinfo("Information", "Vérification des absences terminée")
+                # Vérifier si l'étudiant est marqué comme présent aujourd'hui
+                presence = self.db.execute_query("""
+                    SELECT statut FROM Presences 
+                    WHERE etudiant_id = %s 
+                    AND date_presence = %s
+                """, (student_id, current_date))
+
+                # Si pas de présence enregistrée, marquer comme absent
+                if not presence:
+                    # Insérer l'absence dans la base de données
+                    self.db.execute_query("""
+                        INSERT INTO Presences (etudiant_id, date_presence, heure_presence, statut)
+                        VALUES (%s, %s, %s, %s)
+                    """, (student_id, current_date, current_time, 'Absent'))
+                    
+                    # Ajouter à l'affichage
+                    tree.insert('', 'end', values=(nom, prenom, classe, 'Absent'))
+
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Erreur lors de la vérification des absences : {str(e)}")
 
     def export_to_csv(self):
         """Exporte les données du tableau en CSV"""

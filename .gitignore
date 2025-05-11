@@ -29,7 +29,7 @@ dist/
 # IDE files (optionnel)
 .vscode/
 .idea/
-cascades/
+
 build_camera.spec
 build_recognition.spec
 
