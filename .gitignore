@@ -30,6 +30,12 @@ dist/
 .vscode/
 .idea/
 
+# Database files
+*.db
+*.sql
+database/*.db
+database/*.sql
+!database/schema.sql
 build_camera.spec
 build_recognition.spec
 
